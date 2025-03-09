@@ -1,0 +1,66 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id            String          @id @default(cuid())
+  name          String          @unique
+  price         Float
+  subscriptions Subscription[]
+}
+
+model Customer {
+  id            String          @id @default(cuid())
+  stripeId      String          @unique
+  email         String          @unique
+  subscriptions Subscription[]
+  metrics       Metric[]
+}
+
+model Subscription {
+  id          String    @id @default(cuid())
+  stripeId    String    @unique
+  customerId  String
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+  status      String
+  amount      Float
+  startDate   DateTime
+  endDate     DateTime?
+  canceledAt  DateTime?
+}
+
+model Metric {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  type        String   // mrr, arr, ltv, etc.
+  value       Float
+  date        DateTime
+}
+
+model AnalyticsQuery {
+  id        String   @id @default(cuid())
+  query     String
+  response  String   @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
+
+model StripeConnection {
+  id               String    @id @default(cuid())
+  stripeAccountId  String    @unique
+  accessToken      String
+  refreshToken     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+} 
