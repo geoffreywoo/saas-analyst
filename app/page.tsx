@@ -122,6 +122,9 @@ export default async function DashboardPage() {
   return (
     <div style={{ padding: '20px' }}>
       <h1 style={{ color: '#333', marginBottom: '20px' }}>SaaS Analytics Dashboard</h1>
+      <p style={{ color: '#555', marginBottom: '30px', fontSize: '16px', fontStyle: 'italic', maxWidth: '800px' }}>
+        This AI replaces your basic $200K/year investment banking and venture capital associate who just crunches your cohorts and produces net dollar retention and gross logo retention metrics.
+      </p>
       
       {!stripeConnection ? (
         <div style={{ marginBottom: '30px' }}>

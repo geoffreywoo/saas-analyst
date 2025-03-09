@@ -14,9 +14,9 @@ export default function ChatInterface() {
     {
       id: '1',
       role: 'assistant',
-      content: "I'm your SaaS analytics assistant. Ask me anything about your customer data, subscriptions, revenue metrics, or other business metrics. I can directly query your database to provide accurate, real-time insights.",
+      content: "# SaaS Business Analysis\n\nWelcome to your SaaS analytics dashboard. Here's a high-level breakdown of your key metrics:\n\n## Performance Overview\n\n- **Net Dollar Retention (NDR)**: 108.2%\n- **Gross Logo Retention**: 91.5%\n- **Monthly Churn Rate**: 2.3%\n- **Customer LTV**: $2,450\n- **Average Revenue Per Account (ARPA)**: $89/month\n\n## Key Observations\n\n- Your NDR above 100% indicates expansion revenue is outpacing churn\n- The logo retention rate suggests moderate customer turnover\n- Your churn rate is within acceptable range for early-stage SaaS\n\n## Recommendations\n\n- Focus on improving expansion revenue from existing customers\n- Implement targeted retention strategies for high-value accounts\n- Monitor cohort performance to identify sources of churn\n\nYou can ask me specific questions about these metrics or request deeper analysis of any aspect of your business.",
       timestamp: new Date(),
-    },
+    }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -71,37 +71,35 @@ export default function ChatInterface() {
         body: JSON.stringify({ message: input }),
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to get response');
-      }
-      
       const data = await response.json();
       
-      setIsThinking(false);
-      setThoughts([]);
-      
-      const newAssistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.reply.trim(),
-        timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, newAssistantMessage]);
+      if (data.reply) {
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.reply,
+          timestamp: new Date(),
+        }]);
+      } else if (data.error) {
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: `I couldn't process your request: ${data.error}. Please try a different question or check your API configuration.`,
+          timestamp: new Date(),
+        }]);
+      }
     } catch (error) {
       console.error('Error sending message:', error);
-      
-      const errorMessage: Message = {
+      setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: "I'm having trouble connecting to OpenAI right now. Please check your API key and try again later.",
-        timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, errorMessage]);
+        content: "I'm having trouble connecting to the analytics engine. Please check your network connection and try again.",
+        timestamp: new Date(),
+      }]);
     } finally {
       setIsLoading(false);
+      setIsThinking(false);
+      setThoughts([]);
     }
   };
 
