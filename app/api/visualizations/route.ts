@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/app/lib/prisma';
 import { startOfMonth, subMonths, format, parseISO, differenceInMonths, isBefore } from 'date-fns';
 
 // Define simple interfaces matching our expected data structure

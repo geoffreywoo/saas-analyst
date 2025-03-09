@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { syncStripeData } from '@/lib/stripe/syncData';
+import { syncStripeData } from '@/app/lib/stripe/syncData';
 
 export async function POST() {
   try {

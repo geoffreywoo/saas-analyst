@@ -1,6 +1,34 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/app/lib/prisma';
 import OpenAI from 'openai';
+import { ChatCompletionTool } from 'openai/resources';
+
+// Define interfaces for our data structures
+interface Subscription {
+  id: string;
+  customerId: string;
+  productId: string;
+  amount: number;
+  status: string;
+  startDate: Date;
+  endDate: Date | null;
+  canceledAt: Date | null;
+  product?: Product;
+}
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  subscriptions?: Subscription[];
+}
+
+interface Customer {
+  id: string;
+  email: string;
+  name?: string;
+  subscriptions: Subscription[];
+}
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -9,7 +37,7 @@ const openai = new OpenAI({
 });
 
 // Define available database functions
-const dbTools = [
+const dbTools: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
@@ -169,34 +197,26 @@ const dbTools = [
   }
 ];
 
+// Handle errors properly with type
+function handleError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 export async function POST(request: Request) {
   try {
     const { message } = await request.json();
     
-    // First, let's ask the model what data it wants to gather
-    console.log("Asking OpenAI what data it needs...");
+    if (!message || typeof message !== 'string') {
+      return NextResponse.json(
+        { error: "Message is required and must be a string" },
+        { status: 400 }
+      );
+    }
     
-    // Initial prompt to model
-    const initialSystemPrompt = `
-You are an expert SaaS analytics assistant that can analyze subscription metrics and customer data.
-You have access to a database with the following structure:
-
-1. Customers - each customer has:
-   - id, email, stripeId
-   - subscriptions (one-to-many relationship)
-
-2. Subscriptions - each subscription has:
-   - id, stripeId, status (active/canceled)
-   - amount (monthly price)
-   - startDate, endDate, canceledAt
-   - customerId (foreign key to Customer)
-   - productId (foreign key to Product)
-
-3. Products - each product has:
-   - id, name (e.g., "Free", "Plus", "Pro")
-   - price (monthly price)
-   - subscriptions (one-to-many relationship)
-
+    const initialSystemPrompt = `You are an analytics AI assistant for a SaaS business.
 To answer the user's question, you'll need to decide what data to query.
 You have access to several functions that can retrieve specific data from the database.
 Think step by step about what data you need, then call the appropriate functions.`;
@@ -221,63 +241,49 @@ Think step by step about what data you need, then call the appropriate functions
     const toolResults = [];
     
     for (const toolCall of toolCalls) {
-      const functionName = toolCall.function.name;
-      const functionArgs = JSON.parse(toolCall.function.arguments);
+      if (toolCall.type !== 'function') continue;
       
-      console.log(`Executing database function: ${functionName}`, functionArgs);
+      const { name: functionName, arguments: argsString } = toolCall.function;
+      const args = JSON.parse(argsString);
       
       let result;
+      
       try {
-        // Execute the appropriate function based on the name
         switch (functionName) {
-          case "countCustomers":
-            result = await countCustomers(functionArgs.filter);
+          case 'countCustomers':
+            result = await countCustomers(args.filter);
             break;
-          case "getProductStats":
+          case 'getProductStats':
             result = await getProductStats();
             break;
-          case "getCustomerSample":
-            result = await getCustomerSample(
-              functionArgs.count, 
-              functionArgs.productFilter, 
-              functionArgs.statusFilter
-            );
+          case 'getCustomerSample':
+            result = await getCustomerSample(args.count, args.productFilter, args.statusFilter);
             break;
-          case "calculateChurnRate":
-            result = await calculateChurnRate(
-              functionArgs.product,
-              functionArgs.timePeriod
-            );
+          case 'calculateChurnRate':
+            result = await calculateChurnRate(args.product, args.timePeriod);
             break;
-          case "getRevenueMetrics":
-            result = await getRevenueMetrics(
-              functionArgs.metric,
-              functionArgs.byProduct
-            );
+          case 'getRevenueMetrics':
+            result = await getRevenueMetrics(args.metric, args.byProduct);
             break;
-          case "getSubscriptionGrowth":
-            result = await getSubscriptionGrowth(
-              functionArgs.timeGranularity,
-              functionArgs.timePeriod
-            );
+          case 'getSubscriptionGrowth':
+            result = await getSubscriptionGrowth(args.timeGranularity, args.timePeriod);
             break;
-          case "findCustomerByEmail":
-            result = await findCustomerByEmail(functionArgs.email);
+          case 'findCustomerByEmail':
+            result = await findCustomerByEmail(args.email);
             break;
-          case "analyzePlanChanges":
-            result = await analyzePlanChanges(functionArgs.changeType);
+          case 'analyzePlanChanges':
+            result = await analyzePlanChanges(args.changeType);
             break;
           default:
-            result = { error: `Unknown function: ${functionName}` };
+            result = { error: `Function ${functionName} not found` };
         }
       } catch (error) {
-        console.error(`Error executing function ${functionName}:`, error);
-        result = { error: `Error executing function: ${error.message}` };
+        result = { error: handleError(error) };
       }
       
       toolResults.push({
         tool_call_id: toolCall.id,
-        role: "tool",
+        role: "function" as const,
         name: functionName,
         content: JSON.stringify(result)
       });
@@ -298,47 +304,53 @@ Think step by step about what data you need, then call the appropriate functions
     
     const reply = finalResponse.choices[0].message.content || 
       "I couldn't analyze the data at this time. Please try again.";
+      
+    return NextResponse.json({ reply });
     
-    return NextResponse.json({ reply, source: 'openai-agent' });
   } catch (error) {
-    console.error('Error processing chat message:', error);
+    console.error("Error processing chat request:", error);
     return NextResponse.json(
-      { 
-        error: 'Unable to get a response from OpenAI. Please check your API key and try again.',
-        source: 'error'
-      },
+      { error: "Failed to process your request. Please try again." },
       { status: 500 }
     );
   }
 }
 
-// Database query functions
-
+// Database access functions
 async function countCustomers(filter = 'all') {
-  if (filter === 'with active subscriptions') {
-    const activeCustomers = await prisma.customer.count({
-      where: {
-        subscriptions: {
-          some: {
-            status: 'active'
+  try {
+    if (filter === 'with active subscriptions') {
+      // Count customers with at least one active subscription
+      const result = await prisma.customer.count({
+        where: {
+          subscriptions: {
+            some: {
+              status: 'active'
+            }
           }
         }
-      }
-    });
-    return { 
-      activeCustomers,
-      totalCustomers: await prisma.customer.count()
-    };
-  } else {
-    return {
-      totalCustomers: await prisma.customer.count()
-    };
+      });
+      return { count: result };
+    } else {
+      // Count all customers
+      const result = await prisma.customer.count();
+      return { count: result };
+    }
+  } catch (error) {
+    return { error: handleError(error) };
   }
 }
 
 async function getProductStats() {
+  try {
     const products = await prisma.product.findMany({
       include: {
+        subscriptions: {
+          select: {
+            status: true,
+            amount: true
+          }
+        },
         _count: {
           select: {
             subscriptions: true
@@ -347,118 +359,93 @@ async function getProductStats() {
       }
     });
     
-  // For each product, calculate active subscriptions and MRR
-  const enrichedProducts = await Promise.all(products.map(async (product) => {
-    const activeCount = await prisma.subscription.count({
-        where: { 
-          productId: product.id,
-          status: 'active'
-        }
-      });
+    const productsWithStats = products.map((product: Product & { _count: { subscriptions: number }, subscriptions: { status: string, amount: number }[] }) => {
+      const activeSubscriptions = product.subscriptions.filter(
+        sub => sub.status === 'active'
+      );
       
-      const mrr = await prisma.subscription.aggregate({
-        where: {
-          productId: product.id,
-          status: 'active'
-        },
-        _sum: {
-          amount: true
-        }
-      });
+      const mrr = activeSubscriptions.reduce(
+        (sum: number, sub) => sum + sub.amount, 
+        0
+      );
       
       return {
         id: product.id,
         name: product.name,
         price: product.price,
-      totalSubscriptions: product._count.subscriptions,
-      activeSubscriptions: activeCount,
-      mrr: mrr._sum.amount || 0
+        totalSubscriptions: product._count.subscriptions,
+        activeSubscriptions: activeSubscriptions.length,
+        mrr
       };
-    }));
+    });
     
-  // Calculate totals
-  const totalMRR = enrichedProducts.reduce((sum, product) => sum + product.mrr, 0);
-  const totalActive = enrichedProducts.reduce((sum, product) => sum + product.activeSubscriptions, 0);
-  const totalSubscriptions = enrichedProducts.reduce((sum, product) => sum + product.totalSubscriptions, 0);
-  
-  return {
-    products: enrichedProducts,
-    totals: {
-      mrr: totalMRR,
-      activeSubscriptions: totalActive,
-      totalSubscriptions
-    }
-  };
+    return { products: productsWithStats };
+  } catch (error) {
+    return { error: handleError(error) };
+  }
 }
 
-async function getCustomerSample(count = 10, productFilter = null, statusFilter = null) {
-  const maxCount = Math.min(count || 10, 20); // Cap at 20
-  
-  // Build the query
-  const query = {
-    take: maxCount,
+async function getCustomerSample(count = 10, productFilter: string | null = null, statusFilter: string | null = null) {
+  try {
+    // Build the where clause based on filters
+    const where: any = {};
+    
+    if (productFilter) {
+      where.subscriptions = {
+        some: {
+          product: {
+            name: productFilter
+          }
+        }
+      };
+    }
+    
+    if (statusFilter) {
+      if (!where.subscriptions) {
+        where.subscriptions = { some: {} };
+      }
+      where.subscriptions.some.status = statusFilter;
+    }
+    
+    const customers = await prisma.customer.findMany({
+      where,
       include: {
         subscriptions: {
           include: {
             product: true
           }
         }
-    },
-    where: {}
-  };
-  
-  // Add filters if specified
-  if (productFilter || statusFilter) {
-    query.where.subscriptions = {
-      some: {}
-    };
+      },
+      take: count
+    });
     
-    if (productFilter) {
-      query.where.subscriptions.some.product = {
-        name: productFilter
-      };
-    }
-    
-    if (statusFilter) {
-      query.where.subscriptions.some.status = statusFilter;
-    }
-  }
-  
-  const customers = await prisma.customer.findMany(query);
-  
-  // Process the customers for better analysis
-  return customers.map(customer => {
-    const activeSubscription = customer.subscriptions.find(sub => sub.status === 'active');
-      
-      // Calculate customer lifetime
-    const subscriptionDates = customer.subscriptions.map(sub => new Date(sub.startDate).getTime());
-      const firstDate = subscriptionDates.length > 0 ? new Date(Math.min(...subscriptionDates)) : null;
-      
-      // Calculate total amount paid
-    const totalPaid = customer.subscriptions.reduce((total, sub) => {
+    // Calculate total amount paid per customer and prepare a more readable format
+    const customersWithMetrics = customers.map((customer: Customer) => {
+      const totalPaid = customer.subscriptions.reduce((total: number, sub: Subscription) => {
+        // Calculate months active
         const startDate = new Date(sub.startDate);
         const endDate = sub.endDate ? new Date(sub.endDate) : new Date();
-        const monthsDiff = Math.max(
+        const monthsActive = Math.max(
           1,
-          ((endDate.getFullYear() - startDate.getFullYear()) * 12) +
-          (endDate.getMonth() - startDate.getMonth())
+          Math.ceil((endDate.getTime() - startDate.getTime()) / (30 * 24 * 60 * 60 * 1000))
         );
-        return total + (sub.amount * monthsDiff);
+        
+        return total + (sub.amount * monthsActive);
       }, 0);
       
       return {
         id: customer.id,
         email: customer.email,
-        currentPlan: activeSubscription ? activeSubscription.product.name : 'None',
-        monthlyValue: activeSubscription ? activeSubscription.amount : 0,
-        status: activeSubscription ? 'active' : 'inactive',
-      subscriptionsCount: customer.subscriptions.length,
-        totalPaid: totalPaid,
-        firstSubscribed: firstDate ? firstDate.toISOString() : null,
-      subscriptionAge: firstDate ? Math.floor((new Date().getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24 * 30)) : 0,
-      hasChurned: customer.subscriptions.some(sub => sub.status === 'canceled')
+        totalPaid,
+        subscriptionCount: customer.subscriptions.length,
+        products: customer.subscriptions.map((sub: Subscription) => sub.product?.name).filter(Boolean)
       };
     });
+    
+    return { customers: customersWithMetrics };
+  } catch (error) {
+    return { error: handleError(error) };
+  }
 }
 
 async function calculateChurnRate(product = null, timePeriod = 'all time') {

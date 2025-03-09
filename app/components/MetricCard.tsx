@@ -12,9 +12,22 @@ export default function MetricCard({ title, value, format }: MetricCardProps) {
     : value.toLocaleString();
 
   return (
-    <div className="metric-card">
-      <h3 className="metric-title">{title}</h3>
-      <p className="metric-value">{formattedValue}</p>
+    <div style={{ 
+      border: '1px solid #ddd', 
+      padding: '15px',
+      borderRadius: '5px',
+      backgroundColor: 'white'
+    }}>
+      <h3 style={{ 
+        fontSize: '14px',
+        color: '#666',
+        margin: '0 0 5px 0'
+      }}>{title}</h3>
+      <p style={{ 
+        fontSize: '24px',
+        fontWeight: 'bold',
+        margin: 0
+      }}>{formattedValue}</p>
     </div>
   );
 } 

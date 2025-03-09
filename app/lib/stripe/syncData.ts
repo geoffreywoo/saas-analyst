@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/app/lib/prisma';
 import { subMonths } from 'date-fns';
 
 export async function syncStripeData() {
@@ -12,7 +12,7 @@ export async function syncStripeData() {
   
   // Initialize Stripe with the access token
   const stripe = new Stripe(stripeConnection.accessToken, {
-    apiVersion: '2023-10-16',
+    apiVersion: '2023-10-16' as Stripe.LatestApiVersion,
   });
   
   // Fetch customers

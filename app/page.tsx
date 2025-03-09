@@ -1,11 +1,59 @@
-import { prisma } from '@/lib/prisma';
-import MetricCard from '@/components/MetricCard';
-import { calculateMetrics } from '@/lib/metrics';
-import StripeConnectButton from '@/components/StripeConnectButton';
-import CustomerTable from '@/components/CustomerTable';
-import ProductTable from '@/components/ProductTable';
-import ChatInterface from '@/components/ChatInterface';
-import DashboardVisualizations from '@/components/DashboardVisualizations';
+import { prisma } from '@/app/lib/prisma';
+import MetricCard from '@/app/components/MetricCard';
+import { calculateMetrics } from '@/app/lib/metrics';
+import StripeConnectButton from '@/app/components/StripeConnectButton';
+import CustomerTable from '@/app/components/CustomerTable';
+import ProductTable from '@/app/components/ProductTable';
+import ChatInterface from '@/app/components/ChatInterface';
+import DashboardVisualizations from '@/app/components/DashboardVisualizations';
+
+// Define interfaces for our data structures
+interface Subscription {
+  id: string;
+  customerId: string;
+  productId: string;
+  amount: number;
+  status: string;
+  startDate: Date;
+  endDate: Date | null;
+  canceledAt: Date | null;
+  customer?: {
+    id: string;
+    email: string;
+    name?: string;
+  };
+  product?: {
+    id: string;
+    name: string;
+    price: number;
+  };
+}
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  _count: {
+    subscriptions: number;
+  };
+  subscriptions: {
+    status: string;
+    amount: number;
+  }[];
+}
+
+interface Customer {
+  id: string;
+  email: string;
+  name?: string;
+  subscriptions: Subscription[];
+}
+
+interface ProductWithStats extends Omit<Product, 'subscriptions'> {
+  activeCount: number;
+  mrr: number;
+  subscriptions?: undefined;
+}
 
 export default async function DashboardPage() {
   const subscriptions = await prisma.subscription.findMany({
@@ -35,11 +83,11 @@ export default async function DashboardPage() {
   });
 
   // Calculate active customers and MRR for each product
-  const productsWithStats = products.map(product => {
+  const productsWithStats = products.map((product: Product): ProductWithStats => {
     const activeSubscriptions = product.subscriptions.filter(
-      sub => sub.status === 'active'
+      (sub) => sub.status === 'active'
     );
-    const mrr = activeSubscriptions.reduce((sum, sub) => sum + sub.amount, 0);
+    const mrr = activeSubscriptions.reduce((sum: number, sub) => sum + sub.amount, 0);
 
     return {
       ...product,
@@ -61,9 +109,9 @@ export default async function DashboardPage() {
   });
 
   // Serialize the dates and prepare data for client components
-  const serializedCustomers = customers.map(customer => ({
+  const serializedCustomers = customers.map((customer: Customer) => ({
     ...customer,
-    subscriptions: customer.subscriptions.map(sub => ({
+    subscriptions: customer.subscriptions.map((sub: Subscription) => ({
       ...sub,
       startDate: sub.startDate.toISOString(),
       endDate: sub.endDate ? sub.endDate.toISOString() : null,
